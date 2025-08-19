@@ -1,11 +1,345 @@
-<!-- index.html の例 -->
 <!DOCTYPE html>
-<html>
-  <head>
-    <meta charset="UTF-8">
-    <title>My First Site</title>
-  </head>
-  <body>
-    <h1>こんにちは！これはGitHub Pagesで公開したサイトです。</h1>
-  </body>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PDF分割＆ZIP作成</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.0/jszip.min.js"></script>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      margin: 1em;
+      background: #f9f9f9;
+      color: #222;
+      line-height: 1.4;
+    }
+    h1 {
+      font-size: 1.4rem;
+      margin-bottom: 0.5em;
+    }
+    #parts-container > div {
+      margin-bottom:2px;
+      padding: 4px 8px;
+      border-radius: 5px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      max-width: 700px;
+      box-sizing: border-box;
+      flex-wrap: nowrap;
+    }
+    #parts-box{
+      border:1px solid #ccc;
+      border-radius: 8px;
+      padding: 10px;
+      background: #fff;
+      width: 115%;
+      max-width: 720px;
+    }
+
+    select, input[type="number"], input[type="text"] {
+      padding: 4px 5px;
+      border: 1px solid #ccc;
+      border-radius: 3px;
+      font-size: 0.9rem;
+    }
+    button.remove-part {
+      background: #f44336;
+      color: white;
+      border: none;
+      border-radius: 3px;
+      padding: 5px 10px;
+      cursor: pointer;
+      font-size: 0.9rem;
+    }
+    button.remove-part:hover {
+      background: #d32f2f;
+    }
+    button, #addPartBtn, #splitBtn {
+      font-size: 0.95rem;
+      padding: 6px 12px;
+      border-radius: 5px;
+      border: none;
+      cursor: pointer;
+      background: #1976d2;
+      color: white;
+      transition: background-color 0.3s;
+      margin-top: 8px;
+    }
+    button:hover, #addPartBtn:hover, #splitBtn:hover {
+      background: #0d47a1;
+    }
+    #progress-container {
+      width: 100%;
+      max-width: 600px;
+      background:#eee;
+      border:1px solid #ccc;
+      border-radius:8px;
+      margin:10px 0;
+      height: 20px;
+    }
+    #progress-bar {
+      width:0%;
+      height:100%;
+      background:#4caf50;
+      border-radius:8px;
+      transition: width 0.2s;
+    }
+    #status {
+      font-weight: 500;
+      margin-bottom: 10px;
+    }
+    label {
+      display: block;
+      margin: 10px 0 6px;
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+  <h1>PDF分割＆ZIP作成</h1>
+  <h3>🎷パート譜作成が簡単に！</h3>
+  <h4>PDFをページ指定でパートごとに分けて、<br>
+    ZIPでまとめて一括ダウンロード！<br>
+    手入力や自動補完機能もバッチリ。</h4>
+  <label>曲名：<input type="text" id="title" /></label>
+
+  <label>
+    PDFファイルを選択：
+    <input type="file" id="pdfFile" accept="application/pdf" />
+  </label>
+  <p id="pageCount"></p>
+  
+  <div id="parts-box">
+    <div id="parts-container"></div>
+    <button id="addPartBtn">パートを追加</button>
+  </div>
+
+  <button id="splitBtn">分割＆ZIP作成</button>
+
+  <div id="progress-container"><div id="progress-bar"></div></div>
+  <p id="status"></p>
+
+  <div>作成者名:ちー(X:<a href="https://x.com/chiiirrrrro" target="_blank">@chiiirrrrro</a>)</div>
+
+<script>
+  const partsContainer = document.getElementById('parts-container');
+
+  const partDetails = {
+    Score: [],
+    Sax: ['S.sax', 'A.sax1', 'A.sax2', 'T.sax1', 'T.sax2', 'B.sax', 'Fl', 'Cl', 'B.Cl'],
+    Tp: ['1', '2', '3', '4', '5'],
+    Tb: ['1', '2', '3', '4'],
+    rhythm: ['Guiter', 'Pf', 'Bass', 'Drums', 'Congas'],
+    手入力: []
+  };
+
+  function createPartRow() {
+    const div = document.createElement('div');
+
+    const partSelect = document.createElement('select');
+    for (const key in partDetails) {
+      const opt = document.createElement('option');
+      opt.value = key;
+      opt.textContent = key;
+      partSelect.appendChild(opt);
+    }
+    partSelect.value = 'Tp';
+    div.appendChild(partSelect);
+
+    const detailSelect = document.createElement('select');
+    detailSelect.style.minWidth = '80px';
+    div.appendChild(detailSelect);
+
+    const manualInput = document.createElement('input');
+    manualInput.type = 'text';
+    manualInput.placeholder = 'パート名';
+    manualInput.style.display = 'none';
+    div.appendChild(manualInput);
+
+    const startInput = document.createElement('input');
+    startInput.type = 'number';
+    startInput.min = '1';
+    startInput.placeholder = '開始ページ';
+    startInput.style.width = '80px';
+    div.appendChild(startInput);
+    startInput.addEventListener('input', () => {
+      const startVal = parseInt(startInput.value, 10);
+      if (!isNaN(startVal) && /^[0-9]+$/.test(startInput.value)) { 
+    // 入力が完全な整数値のときのみ反映
+        const rows = Array.from(partsContainer.children);
+        const idx = rows.indexOf(div);
+        if (idx > 0) {
+          const prevDiv = rows[idx - 1];
+          const prevEndInput = prevDiv.querySelectorAll('input[type=number]')[1]; 
+          prevEndInput.value = startVal - 1;
+        }
+      }
+    });
+
+    const tilde = document.createElement('span');
+    tilde.textContent = '〜';
+    div.appendChild(tilde);
+    
+    const endInput = document.createElement('input');
+    endInput.type = 'number';
+    endInput.min = '1';
+    endInput.placeholder = '終了ページ';
+    endInput.style.width = '80px';
+    div.appendChild(endInput);
+
+    const delBtn = document.createElement('button');
+    delBtn.textContent = '削除';
+    delBtn.className = 'remove-part';
+    delBtn.addEventListener('click', () => div.remove());
+    div.appendChild(delBtn);
+
+    function updateDetailOptions() {
+      const part = partSelect.value;
+      const details = partDetails[part];
+      if (part === '手入力') {
+        detailSelect.style.display = 'none';
+        manualInput.style.display = 'inline-block';
+      } else {
+        manualInput.style.display = 'none';
+        manualInput.style.width = '68px';
+        detailSelect.style.display = 'inline-block';
+        detailSelect.innerHTML = '';
+        details.forEach(d => {
+          const opt = document.createElement('option');
+          opt.value = d;
+          opt.textContent = d;
+          detailSelect.appendChild(opt);
+        });
+      }
+    }
+
+    partSelect.addEventListener('change', updateDetailOptions);
+    updateDetailOptions();
+
+    partsContainer.appendChild(div);
+  }
+
+  document.getElementById('addPartBtn').addEventListener('click', createPartRow);
+  createPartRow();
+
+  document.getElementById('pdfFile').addEventListener('change', async function () {
+    const file = this.files[0];
+    const titleField = document.getElementById('title');
+    const pageCountElem = document.getElementById('pageCount');
+
+    if (file) {
+      if (!titleField.value.trim()) {
+        const filename = file.name.replace(/\.pdf$/i, '');
+        titleField.value = filename;
+      }
+
+      try {
+        const arrayBuffer = await file.arrayBuffer();
+        const pdfDoc = await PDFLib.PDFDocument.load(arrayBuffer);
+        const pageCount = pdfDoc.getPageCount();
+        pageCountElem.textContent = `ページ数: ${pageCount}ページ`;
+      } catch (e) {
+        pageCountElem.textContent = 'ページ数を取得できませんでした。';
+        console.error(e);
+      }
+    } else {
+      pageCountElem.textContent = '';
+    }
+  });
+
+  function cleanPartName(name) {
+    return name.replace(':', '').replace(/^Sax/, '').replace(/^rhythm/, '');
+  }
+
+  async function splitPdfAndZip() {
+    const status = document.getElementById('status');
+    const progressBar = document.getElementById('progress-bar');
+    progressBar.style.width = '0%';
+    status.textContent = "処理を開始します";
+
+    const title = document.getElementById('title').value.trim();
+    const fileInput = document.getElementById('pdfFile');
+
+    if (!title || fileInput.files.length === 0) {
+      status.textContent = "曲名とPDFファイルを入力してください";
+      return;
+    }
+
+    const parts = [];
+    for (const div of partsContainer.children) {
+      const selects = div.querySelectorAll('select');
+      const inputs = div.querySelectorAll('input[type=number]');
+      const manual = div.querySelector('input[type=text]');
+      const partType = selects[0].value;
+      const partName = partType === '手入力' ? manual.value : `${partType}:${selects[1].value}`;
+      const start = parseInt(inputs[0].value);
+      const end = parseInt(inputs[1].value);
+      if (!partName) {
+        status.textContent = `手入力の欄は埋めてください`;
+        return;
+      }
+      if (!start || !end || start > end) {
+        status.textContent = `無効な数値が含まれています`;
+        return;
+      }
+      parts.push({ name: partName, start, end });
+    }
+
+    const file = fileInput.files[0];
+    const arrayBuffer = await file.arrayBuffer();
+    const pdfDoc = await PDFLib.PDFDocument.load(arrayBuffer);
+    const zip = new JSZip();
+
+    const existingNames = new Set();
+    function getUniqueFilename(baseName) {
+      if (!existingNames.has(baseName)) {
+        existingNames.add(baseName);
+        return baseName;
+      }
+      let index = 1;
+      let newName;
+      do {
+        newName = `${baseName}(${index})`;
+        index++;
+      } while (existingNames.has(newName));
+      existingNames.add(newName);
+      return newName;
+    }
+
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i];
+      status.textContent = `処理中… ${part.name} (${i + 1}/${parts.length})`;
+      const newPdf = await PDFLib.PDFDocument.create();
+      for (let p = part.start - 1; p < part.end; p++) {
+        const [copiedPage] = await newPdf.copyPages(pdfDoc, [p]);
+        newPdf.addPage(copiedPage);
+        await new Promise(r => setTimeout(r, 10));
+      }
+      const pdfBytes = await newPdf.save();
+      const baseName = `${title} ${cleanPartName(part.name)}`;
+      const uniqueName = getUniqueFilename(baseName);
+      const filename = `${uniqueName}.pdf`;
+      zip.file(filename, pdfBytes);
+      progressBar.style.width = `${Math.floor(((i + 1) / parts.length) * 100)}%`;
+    }
+
+    status.textContent = "ZIPファイルを作成中…";
+    const zipBlob = await zip.generateAsync({ type: "blob" });
+    const url = URL.createObjectURL(zipBlob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${title}_parts.zip`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+
+    status.textContent = "完了！ZIPファイルをダウンロードしました。";
+  }
+
+  document.getElementById('splitBtn').addEventListener('click', splitPdfAndZip);
+</script>
+</body>
 </html>
